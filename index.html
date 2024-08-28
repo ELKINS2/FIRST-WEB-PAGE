@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Divisor de Video</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        label {
+            display: block;
+            margin-top: 10px;
+        }
+        input, button {
+            margin-top: 5px;
+        }
+        #result {
+            margin-top: 20px;
+        }
+        .link {
+            display: block;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Divisor de Video</h1>
+    
+    <label for="video-file">Cargar Video: </label>
+    <input type="file" id="video-file" accept="video/*">
+    
+    <label for="segment-duration">Duración de cada segmento (en segundos): </label>
+    <input type="number" id="segment-duration" placeholder="Introduce duración de cada segmento en segundos">
+    
+    <button onclick="divideVideo()">Dividir Video</button>
+    
+    <h2>Clips Generados:</h2>
+    <div id="result"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@latest/dist/ffmpeg.min.js"></script>
+    <script>
+        const { createFFmpeg, fetchFile } = FFmpeg;
+        const ffmpeg = createFFmpeg({ log: true });
+
+        async function divideVideo() {
+            const videoFile = document.getElementById('video-file').files[0];
+            const segmentDuration = parseInt(document.getElementById('segment-duration').value);
+            const resultDiv = document.getElementById('result');
+
+            if (!videoFile || isNaN(segmentDuration) || segmentDuration <= 0) {
+                resultDiv.innerHTML = '<p style="color:red;">Por favor, carga un video e introduce un valor válido para la duración del segmento.</p>';
+                return;
+            }
+
+            if (!ffmpeg.isLoaded()) {
+                await ffmpeg.load();
+            }
+
+            resultDiv.innerHTML = '<p>Procesando video...</p>';
+
+            const videoName = 'input.mp4';
+            await ffmpeg.FS('writeFile', videoName, await fetchFile(videoFile));
+
+            const videoDuration = await getVideoDuration(videoFile);
+            let startTime = 0;
+            let segmentCount = 0;
+
+            while (startTime < videoDuration) {
+                let endTime = Math.min(startTime + segmentDuration, videoDuration);
+                const segmentName = `segment_${segmentCount}.mp4`;
+
+                await ffmpeg.run(
+                    '-i', videoName,
+                    '-ss', formatTime(startTime),
+                    '-t', formatTime(endTime - startTime),
+                    '-c', 'copy',
+                    segmentName
+                );
+
+                const data = ffmpeg.FS('readFile', segmentName);
+                const url = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
+                
+                const downloadLink = document.createElement('a');
+                downloadLink.href = url;
+                downloadLink.download = segmentName;
+                downloadLink.textContent = `Descargar ${segmentName}`;
+                downloadLink.className = 'link';
+                resultDiv.appendChild(downloadLink);
+
+                startTime = endTime;
+                segmentCount++;
+            }
+
+            resultDiv.innerHTML += '<p>¡Procesamiento completado!</p>';
+        }
+
+        async function getVideoDuration(file) {
+            return new Promise((resolve) => {
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.src = URL.createObjectURL(file);
+                video.onloadedmetadata = function() {
+                    resolve(video.duration);
+                };
+            });
+        }
+
+        function formatTime(seconds) {
+            return new Date(seconds * 1000).toISOString().substr(11, 8);
+        }
+    </script>
+</body>
+</html>
